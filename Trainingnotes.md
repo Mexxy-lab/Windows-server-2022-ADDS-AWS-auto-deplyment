@@ -313,7 +313,7 @@ In SonarQube:
 
 - SSM stands for AWS Systems Manager. It is an AWS service that lets you remotely manage and administer servers and virtual machines without needing to expose them to the internet or open SSH/RDP ports.
 
-Think of it as AWS's secure remote-management system. What does SSM do?
+- Think of it as AWS's secure remote-management system. What does SSM do?
 
 Feature                           Purpose
 Session Manager                   Connect to Linux and Windows servers remotely without SSH or RDP.
