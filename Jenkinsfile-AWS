@@ -169,7 +169,7 @@ pipeline {
                     def scannerHome = tool 'SonarScanner'
 
                     // Connect to the configured SonarQube server.
-                    withSonarQubeEnv('SonarQube') {
+                    withSonarQubeEnv('SonarQube-Local') {
 
                         sh """
                             set -e
