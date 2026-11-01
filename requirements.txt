@@ -1,2 +1,10 @@
-ansible
-pywinrm
+# Ansible automation engine.
+ansible-core==2.21.5
+
+# Windows remote management.
+pywinrm==0.5.0
+requests-ntlm==1.3.0
+
+# Ansible and YAML validation.
+ansible-lint==26.10.1
+yamllint==1.38.0

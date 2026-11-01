@@ -1,0 +1,43 @@
+---
+# Verify that the optional Windows client successfully joined the AD domain.
+- name: Validate Windows client domain membership
+  hosts: windows_clients
+  gather_facts: false
+
+  # Load the shared domain settings and encrypted credentials.
+  vars_files:
+    - ../group_vars/windows.yml
+    - ../group_vars/vault.yml
+
+  # Authenticate using the local Administrator account on the client.
+  vars:
+    ansible_user: Administrator
+    ansible_password: "{{ domain_admin_password }}"
+
+  tasks:
+    - name: Verify Windows client domain membership
+      ansible.windows.win_powershell:
+        script: |
+          param(
+            [string]$ExpectedDomain
+          )
+
+          # Read the computer's current domain membership.
+          $computer = Get-CimInstance Win32_ComputerSystem
+
+          # Stop deployment validation if the client is not joined correctly.
+          if (-not $computer.PartOfDomain -or
+              $computer.Domain -ine $ExpectedDomain) {
+              throw "Client is not joined to the expected domain: $ExpectedDomain"
+          }
+
+          Write-Output "CLIENT_DOMAIN_OK: $($computer.Domain)"
+
+        parameters:
+          ExpectedDomain: "{{ domain_name }}"
+
+      register: client_validation
+
+    - name: Display client validation result
+      ansible.builtin.debug:
+        msg: "{{ client_validation.output }}"

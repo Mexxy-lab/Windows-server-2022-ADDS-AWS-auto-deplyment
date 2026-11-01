@@ -1,35 +1,3 @@
-# ---
-# - name: Join Windows 10 to the domain
-#   hosts: windows_clients
-#   gather_facts: false
-
-#   vars_files:
-#     - ../group_vars/windows.yml
-#     - ../group_vars/vault.yml  
-
-#   vars:
-
-#   tasks:
-#     - name: Configure the domain controller as DNS server
-#       ansible.windows.win_dns_client:
-#         adapter_names: "*"
-#         dns_servers:
-#           - "{{ domain_dns_server }}"
-
-#     - name: Join the Active Directory domain
-#       microsoft.ad.membership:
-#         dns_domain_name: pumejlab.com
-#         domain_admin_user: "PUMEJLAB\\Administrator"
-#         domain_admin_password: "{{ domain_admin_password }}"
-#         state: domain
-#       register: domain_join
-#       no_log: true
-
-#     - name: Restart the client when required
-#       ansible.windows.win_reboot:
-#         reboot_timeout: 1800
-#       when: domain_join.reboot_required | default(false)
-
 ---
 - name: Join Windows client to the AD domain
   hosts: windows_clients
@@ -40,26 +8,59 @@
     - ../group_vars/vault.yml
 
   vars:
-    # Connection credentials are supplied by inventory or extra vars.
+    # Use the domain administrator password supplied by Ansible Vault.
     ansible_password: "{{ domain_admin_password }}"
 
   tasks:
+    # ---------------------------------------------------------
+    # 1. Configure the Windows client to use the domain
+    #    controller as its DNS server.
+    # ---------------------------------------------------------
     - name: Configure the domain controller as DNS server
       ansible.windows.win_dns_client:
         adapter_names: "*"
         dns_servers:
           - "{{ domain_dns_server }}"
 
+    # ---------------------------------------------------------
+    # 2. Join the Windows client to Active Directory.
+    #    Use UPN format to avoid backslash escaping issues.
+    # ---------------------------------------------------------
     - name: Join the Active Directory domain
       microsoft.ad.membership:
         dns_domain_name: "{{ domain_name }}"
-        domain_admin_user: "{{ domain_join_username | default(domain_netbios_name ~ '\\\\Administrator') }}"
+        domain_admin_user: "Administrator@{{ domain_name }}"
         domain_admin_password: "{{ domain_admin_password }}"
         state: domain
       register: domain_join
       no_log: true
 
-    - name: Restart the client when required
-      ansible.windows.win_reboot:
-        reboot_timeout: 1800
-      when: domain_join.reboot_required | default(false)
+    # ---------------------------------------------------------
+    # 3. Verify that the client belongs to the expected domain.
+    # ---------------------------------------------------------
+    - name: Verify that the client is configured to join the expected domain
+      ansible.windows.win_powershell:
+        script: |
+          $computer = Get-CimInstance Win32_ComputerSystem
+
+          if (-not $computer.PartOfDomain) {
+              throw "The client is not joined to an Active Directory domain."
+          }
+
+          if ($computer.Domain -ne "{{ domain_name }}") {
+              throw "The client is joined to an unexpected domain: $($computer.Domain)"
+          }
+
+          Write-Output "Successfully joined domain: $($computer.Domain)"
+
+    # ---------------------------------------------------------
+    # 4. Display confirmation.
+    #    The AWS deployment script handles the Windows reboot
+    #    through Systems Manager (SSM), not Ansible WinRM.
+    # ---------------------------------------------------------
+    - name: Confirm successful domain join
+      ansible.builtin.debug:
+        msg:
+          - "Windows client successfully joined {{ domain_name }}."
+          - "Domain membership verification completed."
+          - "The deployment script will handle the client reboot through AWS SSM."

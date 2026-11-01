@@ -308,3 +308,72 @@ In SonarQube:
 1. Go to Administration → Configuration → Webhooks.
 2. Add a webhook.
 3. Set its URL to: <http://YOUR-JENKINS-SERVER:8080/sonarqube-webhook/>
+
+## What is SSM?
+
+- SSM stands for AWS Systems Manager. It is an AWS service that lets you remotely manage and administer servers and virtual machines without needing to expose them to the internet or open SSH/RDP ports.
+
+Think of it as AWS's secure remote-management system. What does SSM do?
+
+Feature                           Purpose
+Session Manager                   Connect to Linux and Windows servers remotely without SSH or RDP.
+Run Command                       Execute commands or PowerShell scripts remotely.
+Patch Manager                     Automate operating system patching.
+Fleet Manager                     Manage and monitor EC2 instances.
+Parameter Store                   Securely store configuration values and application parameters.
+Automation                        Automate administrative tasks and operational procedures.
+
+## How SSM works in your AWS Windows AD project
+
+- Your architecture uses SSM to manage your Windows Domain Controller and Windows client in private subnets.
+- Here's what happens during your deployment:
+
+1. Terraform provisions your Windows EC2 instances.
+2. Each Windows instance runs the SSM Agent.
+3. The SSM Agent establishes outbound communication with AWS Systems Manager.
+4. Your Jenkins server uses the AWS CLI and Session Manager plugin to establish SSM port-forwarding sessions.
+5. Ansible connects through those tunnels to configure Active Directory and join the Windows client to the domain.
+
+## Why SSM is valuable for DevOps
+
+- SSM is an important cloud infrastructure security skill because it helps you:
+
+- Avoid exposing SSH (22) and RDP (3389) to the public internet.
+- Centrally manage EC2 instances.
+- Execute remote commands through automation.
+- Integrate secure server administration into Jenkins pipelines.
+- Reduce the need for traditional bastion hosts.
+
+```bash
+trivy config \
+    --misconfig-scanners=terraform \
+    --severity HIGH,CRITICAL \
+    --format json \
+    --output trivy-report.json \
+    .
+
+jq -r '
+  .Results[]?.Misconfigurations[]?
+  | [
+      .ID,
+      .Severity,
+      .CauseMetadata.Resource,
+      .CauseMetadata.Code.Lines[0].Number,
+      .CauseMetadata.Code.Lines[-1].Number
+    ]
+  | @tsv
+' trivy-report.json
+
+jq -r '
+  .Results[]?.Misconfigurations[]?
+  | [.ID, .Severity, .Title, .PrimaryURL]
+  | @tsv
+' trivy-report.json
+
+jq -r '
+  [.Results[]?.Misconfigurations[]?]
+  | group_by(.Severity)
+  | map("\(.[0].Severity): \(length)")
+  | .[]
+' trivy-report.json
+```

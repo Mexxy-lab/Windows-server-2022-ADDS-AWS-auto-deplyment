@@ -1,3 +1,4 @@
+
 ---
 - name: Prepare and promote the domain controller
   hosts: domain_controller
@@ -7,12 +8,26 @@
     - ../group_vars/windows.yml
     - ../group_vars/vault.yml
 
-  # Do not define ansible_user here.
-  # A play-level variable would override the set_fact below.
   vars:
+    # Use the local Administrator account during initial configuration.
+    # The deployment script changes to domain credentials after promotion.
     ansible_password: "{{ domain_admin_password }}"
 
   tasks:
+    # Ensure the server has the intended hostname before creating the forest.
+    - name: Set the domain controller hostname
+      ansible.windows.win_hostname:
+        name: "{{ domain_controller_hostname }}"
+      register: hostname_change
+
+    # A hostname change requires a reboot before AD DS promotion.
+    - name: Reboot after hostname change
+      ansible.windows.win_reboot:
+        reboot_timeout: 1800
+        msg: "Rebooting to apply the domain controller hostname."
+      when: hostname_change.reboot_required
+
+    # Install Active Directory Domain Services and management tools.
     - name: Install AD DS and management tools
       ansible.windows.win_feature:
         name: AD-Domain-Services
@@ -20,6 +35,8 @@
         include_management_tools: true
       register: adds_install
 
+    # Create the new AD forest without immediately rebooting.
+    # The deployment script will perform the reboot through SSM.
     - name: Configure the new AD forest
       ansible.windows.win_powershell:
         script: |

@@ -56,10 +56,11 @@ pipeline {
                     # Check Bash syntax without executing the deployment.
                     bash -n startupadds-aws.sh
 
-                    # Confirm required automation tools are installed.
+                    // Confirm required automation and AWS Session Manager tools are installed.
                     for cmd in terraform aws ansible-playbook \
-                               ansible ansible-inventory ansible-vault \
-                               ansible-galaxy python3; do
+                            ansible ansible-inventory ansible-vault \
+                            ansible-galaxy python3 session-manager-plugin; do
+
                         command -v "$cmd" >/dev/null 2>&1 || {
                             echo "ERROR: Missing required command: $cmd"
                             exit 1
@@ -86,21 +87,21 @@ pipeline {
                 sh '''
                     set -e
 
-                    # Display the installed Trivy version.
+                    # Display the installed Trivy version for build traceability.
                     trivy version
+
+                    echo "=========================================="
+                    echo "Trivy filesystem security scan"
+                    echo "=========================================="
 
                     # Scan the repository for:
                     # - Vulnerable dependencies and packages.
-                    # - Infrastructure-as-Code misconfigurations.
-                    # - Potentially exposed secrets.
+                    # - Exposed credentials, tokens, and secrets.
                     #
-                    # Fail the pipeline when HIGH or CRITICAL findings
-                    # are detected.
-                    #
-                    # Skip generated files and directories that do not
-                    # need to be included in the repository scan.
+                    # Fail the build if HIGH or CRITICAL findings exist.
+                    # Skip generated files and directories.
                     trivy fs \
-                        --scanners vuln,misconfig,secret \
+                        --scanners vuln,secret \
                         --severity HIGH,CRITICAL \
                         --exit-code 1 \
                         --format table \
@@ -109,6 +110,31 @@ pipeline {
                         --skip-dirs logs \
                         --skip-dirs .terraform \
                         .
+
+                    echo "=========================================="
+                    echo "Trivy Terraform IaC security scan"
+                    echo "=========================================="
+
+                    # Scan Terraform configuration only.
+                    # Excluding other misconfiguration scanners prevents
+                    # the additional Terraform Plan Snapshot scan.
+                    #
+                    # This checks the Terraform files throughout the
+                    # repository and fails on HIGH or CRITICAL findings.
+                    trivy config \
+                        --misconfig-scanners terraform \
+                        --severity HIGH,CRITICAL \
+                        --exit-code 1 \
+                        --format table \
+                        --skip-dirs .git \
+                        --skip-dirs .venv \
+                        --skip-dirs logs \
+                        --skip-dirs .terraform \
+                        .
+
+                    echo "=========================================="
+                    echo "Trivy security scans completed successfully."
+                    echo "=========================================="
                 '''
             }
         }
