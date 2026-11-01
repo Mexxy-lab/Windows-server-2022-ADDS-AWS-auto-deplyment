@@ -67,7 +67,7 @@ pipeline {
         // 2. Validate prerequisites
         // --------------------------------------------------
 
-        stage('Pre-deployment Validation') {
+        stage('Pre-deployment Checks') {
             steps {
                 sh '''
                     set -e
@@ -130,7 +130,7 @@ pipeline {
         // 3. Trivy filesystem security scan
         // --------------------------------------------------
 
-        stage('Trivy Security Scan') {
+        stage('Trivy Scan') {
             steps {
                 sh '''
                     set -e
@@ -254,7 +254,7 @@ pipeline {
         // 7. APPLY: Deploy AWS infrastructure and configure AD DS
         // --------------------------------------------------
 
-        stage('Deploy AWS Active Directory') {
+        stage('Deploy AWS ADDS') {
             when {
                 expression {
                     params.ACTION == 'APPLY'
@@ -428,7 +428,7 @@ pipeline {
         // 10. DESTROY: Execute the approved Terraform plan
         // --------------------------------------------------
 
-        stage('Destroy AWS Environment') {
+        stage('Destroy AWS Env') {
             when {
                 expression {
                     params.ACTION == 'DESTROY'
