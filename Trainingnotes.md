@@ -365,12 +365,6 @@ jq -r '
 ' trivy-report.json
 
 jq -r '
-  .Results[]?.Misconfigurations[]?
-  | [.ID, .Severity, .Title, .PrimaryURL]
-  | @tsv
-' trivy-report.json
-
-jq -r '
   [.Results[]?.Misconfigurations[]?]
   | group_by(.Severity)
   | map("\(.[0].Severity): \(length)")
