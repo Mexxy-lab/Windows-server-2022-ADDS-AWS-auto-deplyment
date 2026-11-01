@@ -1,4 +1,10 @@
 # Security group for the NAT instance.
+# Intentional egress exception:
+# This instance performs NAT for the private subnet.
+# Outbound access is restricted to TCP 80 and 443.
+# Public destinations are required for forwarded internet traffic.
+# Reassess this exception before its expiration date.
+#trivy:ignore:AVD-AWS-0104:exp:2027-02-01
 resource "aws_security_group" "nat" {
   name        = "${var.project_name}-nat-sg"
   description = "Allows private subnet traffic to reach the NAT instance."
@@ -42,6 +48,12 @@ resource "aws_security_group" "nat" {
 }
 
 # Security group shared by DC01 and the optional Windows client.
+# Intentional egress exception:
+# Private Windows servers require outbound HTTP/HTTPS for
+# Windows updates, AWS Systems Manager, and required downloads.
+# Internal VPC communication is separately restricted to var.vpc_cidr.
+# Reassess this exception before its expiration date.
+#trivy:ignore:AVD-AWS-0104:exp:2027-02-01
 resource "aws_security_group" "windows" {
   name        = "${var.project_name}-windows-sg"
   description = "Private Windows AD instances with no public management access."
