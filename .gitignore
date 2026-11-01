@@ -3,7 +3,6 @@
 .vagrant/
 *.box
 *.log
-files/user_accounts_final.csv
 aws-ad-lab-terraform/.terraform/
 aws-ad-lab-terraform/*.tfstate
 aws-ad-lab-terraform/*.tfstate.*

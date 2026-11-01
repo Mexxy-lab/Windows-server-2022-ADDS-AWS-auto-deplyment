@@ -1,15 +1,24 @@
-
+```groovy
 pipeline {
 
     // Run on the Jenkins agent with Terraform, AWS CLI, Ansible,
     // Trivy, and the SonarQube Scanner available.
     agent any
 
+    // Choose the operation when starting a Jenkins build.
+    parameters {
+        choice(
+            name: 'ACTION',
+            choices: ['APPLY', 'DESTROY'],
+            description: 'Choose APPLY to deploy or DESTROY to remove the AWS AD lab provisioned environment.'
+        )
+    }
+
     options {
         // Include timestamps in build logs.
         timestamps()
 
-        // Prevent simultaneous AWS AD deployments.
+        // Prevent simultaneous AWS infrastructure operations.
         disableConcurrentBuilds()
 
         // Allow sufficient time for Windows provisioning and AD configuration.
@@ -40,8 +49,11 @@ pipeline {
                 sh '''
                     set -e
 
-                    echo "AWS Windows Server 2022 AD DS Deployment"
-                    echo "=========================================="
+                    echo "AWS Windows Server 2022 AD DS Pipeline"
+                    echo "======================================="
+
+                    # Display the selected operation.
+                    echo "Selected action: $ACTION"
 
                     # Display the checked-out commit.
                     git log -1 --oneline
@@ -53,7 +65,7 @@ pipeline {
         }
 
         // --------------------------------------------------
-        // 2. Validate deployment script and prerequisites
+        // 2. Validate prerequisites
         // --------------------------------------------------
 
         stage('Pre-deployment Validation') {
@@ -62,37 +74,52 @@ pipeline {
                     set -e
 
                     echo "=========================================="
-                    echo "Pre-deployment validation"
+                    echo "Pipeline prerequisite validation"
                     echo "=========================================="
-
-                    # Confirm the AWS deployment script exists.
-                    test -f startupadds-aws.sh
-
-                    # Validate Bash syntax without running deployment.
-                    bash -n startupadds-aws.sh
 
                     # Confirm the Terraform configuration exists.
                     test -f aws-ad-lab-terraform/main.tf
                     test -f aws-ad-lab-terraform/versions.tf
 
-                    # Confirm required automation tools are installed.
-                    for cmd in terraform aws ansible-playbook \
-                               ansible ansible-inventory ansible-vault \
-                               ansible-galaxy python3 session-manager-plugin \
-                               trivy git; do
-
+                    # Confirm tools required for both operations.
+                    for cmd in terraform aws trivy git; do
                         command -v "$cmd" >/dev/null 2>&1 || {
                             echo "ERROR: Missing required command: $cmd"
                             exit 1
                         }
                     done
 
-                    # Display installed tool versions for traceability.
+                    # Deployment-only tools are not required for DESTROY.
+                    if [ "$ACTION" = "APPLY" ]; then
+
+                        # Confirm the deployment script exists.
+                        test -f startupadds-aws.sh
+
+                        # Validate Bash syntax without running deployment.
+                        bash -n startupadds-aws.sh
+
+                        # Confirm Ansible and SSM tools are available.
+                        for cmd in ansible-playbook ansible \
+                                   ansible-inventory ansible-vault \
+                                   ansible-galaxy python3 \
+                                   session-manager-plugin; do
+
+                            command -v "$cmd" >/dev/null 2>&1 || {
+                                echo "ERROR: Missing deployment command: $cmd"
+                                exit 1
+                            }
+                        done
+                    fi
+
+                    # Display installed tool versions.
                     terraform version
                     aws --version
-                    ansible --version
                     trivy version
-                    session-manager-plugin --version
+
+                    if [ "$ACTION" = "APPLY" ]; then
+                        ansible --version
+                        session-manager-plugin --version
+                    fi
 
                     echo "All required tools are available."
                     echo "Pre-deployment validation passed."
@@ -115,8 +142,6 @@ pipeline {
 
                     # Scan the repository for vulnerable dependencies
                     # and exposed secrets.
-                    #
-                    # Fail the pipeline on HIGH or CRITICAL findings.
                     trivy fs \
                         --scanners vuln,secret \
                         --severity HIGH,CRITICAL \
@@ -135,9 +160,6 @@ pipeline {
 
                     # Scan Terraform configuration for infrastructure
                     # misconfigurations.
-                    #
-                    # Restrict the misconfiguration scanner to Terraform.
-                    # Fail on HIGH or CRITICAL findings.
                     trivy config \
                         --misconfig-scanners terraform \
                         --severity HIGH,CRITICAL \
@@ -208,14 +230,19 @@ pipeline {
         }
 
         // --------------------------------------------------
-        // 6. Manual deployment approval
+        // 6. APPLY: Manual deployment approval
         // --------------------------------------------------
 
         stage('Deployment Approval') {
+            when {
+                expression {
+                    params.ACTION == 'APPLY'
+                }
+            }
             steps {
                 script {
 
-                    // Require approval before creating billable AWS resources.
+                    // Require approval before creating billable resources.
                     input(
                         message: 'Approve deployment of Windows Server 2022 AD DS infrastructure in AWS? This deployment may create billable resources.',
                         ok: 'Approve AWS Deployment'
@@ -225,10 +252,15 @@ pipeline {
         }
 
         // --------------------------------------------------
-        // 7. Deploy AWS infrastructure and configure AD DS
+        // 7. APPLY: Deploy AWS infrastructure and configure AD DS
         // --------------------------------------------------
 
         stage('Deploy AWS Active Directory') {
+            when {
+                expression {
+                    params.ACTION == 'APPLY'
+                }
+            }
             steps {
 
                 // Retrieve AWS credentials and Ansible Vault password
@@ -295,15 +327,203 @@ pipeline {
         }
 
         // --------------------------------------------------
-        // 8. Deployment completion
+        // 8. DESTROY: Generate Terraform destruction plan
+        // --------------------------------------------------
+
+        stage('Destroy Plan') {
+            when {
+                expression {
+                    params.ACTION == 'DESTROY'
+                }
+            }
+            steps {
+
+                // Retrieve AWS credentials for Terraform.
+                withCredentials([
+
+                    string(
+                        credentialsId: 'pumej_aws_access_id',
+                        variable: 'AWS_ACCESS_KEY_ID'
+                    ),
+
+                    string(
+                        credentialsId: 'pumej_aws_secret_key',
+                        variable: 'AWS_SECRET_ACCESS_KEY'
+                    )
+                ]) {
+
+                    dir('aws-ad-lab-terraform') {
+                        sh '''
+                            set +x
+                            set -e
+
+                            echo "=========================================="
+                            echo "Preparing AWS Terraform destruction plan"
+                            echo "=========================================="
+
+                            # Verify that Jenkins is authenticated to AWS.
+                            aws sts get-caller-identity
+
+                            # Initialize the existing Terraform backend.
+                            terraform init -input=false
+
+                            # Display the selected Terraform workspace.
+                            terraform workspace show
+
+                            # Refuse to continue if Terraform has no tracked resources.
+                            if ! terraform state list | grep -q .; then
+                                echo "ERROR: Terraform state contains no managed resources."
+                                echo "Refusing to generate an empty destruction plan."
+                                exit 1
+                            fi
+
+                            # Generate a saved plan without destroying resources.
+                            terraform plan \
+                                -destroy \
+                                -input=false \
+                                -lock-timeout=5m \
+                                -out=destroy.tfplan
+
+                            # Display the resources scheduled for destruction.
+                            echo "=========================================="
+                            echo "REVIEW THE FOLLOWING DESTRUCTION PLAN"
+                            echo "=========================================="
+
+                            terraform show -no-color destroy.tfplan
+
+                            echo "=========================================="
+                            echo "Destroy plan generated successfully."
+                            echo "No AWS resources have been destroyed yet."
+                            echo "=========================================="
+                        '''
+                    }
+                }
+            }
+        }
+
+        // --------------------------------------------------
+        // 9. DESTROY: Manual destruction approval
+        // --------------------------------------------------
+
+        stage('Destroy Approval') {
+            when {
+                expression {
+                    params.ACTION == 'DESTROY'
+                }
+            }
+            steps {
+                script {
+
+                    // Require explicit approval before removing AWS resources.
+                    timeout(time: 15, unit: 'MINUTES') {
+                        input(
+                            message: 'WARNING: You are about to destroy the AWS Windows Server 2022 AD Lab environment. Review the Destroy Plan stage before approving.',
+                            ok: 'Destroy AWS Environment'
+                        )
+                    }
+                }
+            }
+        }
+
+        // --------------------------------------------------
+        // 10. DESTROY: Execute the approved Terraform plan
+        // --------------------------------------------------
+
+        stage('Destroy AWS Environment') {
+            when {
+                expression {
+                    params.ACTION == 'DESTROY'
+                }
+            }
+            steps {
+
+                // Retrieve AWS credentials for Terraform destruction.
+                withCredentials([
+
+                    string(
+                        credentialsId: 'pumej_aws_access_id',
+                        variable: 'AWS_ACCESS_KEY_ID'
+                    ),
+
+                    string(
+                        credentialsId: 'pumej_aws_secret_key',
+                        variable: 'AWS_SECRET_ACCESS_KEY'
+                    )
+                ]) {
+
+                    dir('aws-ad-lab-terraform') {
+                        sh '''
+                            set +x
+                            set -e
+
+                            echo "=========================================="
+                            echo "Destroying AWS Active Directory environment"
+                            echo "=========================================="
+
+                            # Ensure the saved plan exists before proceeding.
+                            test -s destroy.tfplan
+
+                            # Verify AWS credentials again.
+                            aws sts get-caller-identity
+
+                            # Apply the exact destruction plan reviewed earlier.
+                            # Terraform will fail safely if the state has changed.
+                            terraform apply \
+                                -input=false \
+                                -lock-timeout=5m \
+                                -auto-approve \
+                                destroy.tfplan
+
+                            echo "=========================================="
+                            echo "Terraform destruction completed."
+                            echo "=========================================="
+
+                            # Confirm no managed resources remain in this state.
+                            if terraform state list | grep -q .; then
+                                echo "WARNING: Terraform state still contains resources."
+                                terraform state list
+                                exit 1
+                            fi
+
+                            echo "Terraform state contains no managed resources."
+                        '''
+                    }
+                }
+            }
+        }
+
+        // --------------------------------------------------
+        // 11. APPLY: Deployment completion
         // --------------------------------------------------
 
         stage('Deployment Summary') {
+            when {
+                expression {
+                    params.ACTION == 'APPLY'
+                }
+            }
             steps {
                 echo 'AWS Windows Server 2022 AD DS deployment completed successfully.'
                 echo 'Trivy filesystem and Terraform security scans passed.'
                 echo 'SonarQube Quality Gate passed.'
                 echo 'Review deployment logs and Terraform outputs.'
+            }
+        }
+
+        // --------------------------------------------------
+        // 12. DESTROY: Completion summary
+        // --------------------------------------------------
+
+        stage('Destroy Summary') {
+            when {
+                expression {
+                    params.ACTION == 'DESTROY'
+                }
+            }
+            steps {
+                echo 'AWS Active Directory infrastructure destruction completed successfully.'
+                echo 'Terraform reports no remaining managed resources in this state.'
+                echo 'Review the AWS console to confirm resource cleanup.'
             }
         }
     }
@@ -315,21 +535,35 @@ pipeline {
     post {
 
         success {
-            echo 'SUCCESS: AWS Active Directory deployment completed.'
-            echo 'Trivy and SonarQube checks passed.'
+            script {
+                if (params.ACTION == 'APPLY') {
+                    echo 'SUCCESS: AWS Active Directory deployment completed.'
+                } else {
+                    echo 'SUCCESS: AWS Active Directory destruction completed.'
+                }
+
+                echo 'Trivy and SonarQube checks passed.'
+            }
         }
 
         failure {
-            echo 'FAILED: AWS Active Directory deployment encountered an error.'
+            echo 'FAILED: The selected AWS infrastructure operation encountered an error.'
             echo 'Review the Jenkins console output and identify the failed stage.'
         }
 
         aborted {
-            echo 'Deployment was aborted or approval was declined.'
+            echo 'The pipeline was aborted or the approval was declined.'
         }
 
         always {
+            // Remove the saved destruction plan after the pipeline finishes.
+            // Terraform plan files can contain sensitive infrastructure data.
+            sh '''
+                rm -f aws-ad-lab-terraform/destroy.tfplan
+            '''
+
             echo 'AWS AD DS Jenkins pipeline execution finished.'
         }
     }
 }
+```
