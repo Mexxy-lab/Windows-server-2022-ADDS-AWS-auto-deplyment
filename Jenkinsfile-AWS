@@ -9,7 +9,7 @@ pipeline {
         // Include timestamps in build logs.
         timestamps()
 
-        // Prevent two AWS AD deployments from running simultaneously.
+        // Prevent simultaneous AWS AD deployments.
         disableConcurrentBuilds()
 
         // Allow sufficient time for Windows provisioning and AD configuration.
@@ -17,12 +17,15 @@ pipeline {
     }
 
     environment {
-        // Terraform installation.
+        // Run Terraform in automation mode.
         TF_IN_AUTOMATION = 'true'
 
-        // Shared Ansible virtual environment.
+        // Set the AWS deployment region.
+        AWS_DEFAULT_REGION = 'us-east-1'
+
+        // Use the shared Ansible virtual environment.
         PATH = "/opt/jenkins-tools/ansible/bin:/usr/local/bin:/usr/bin:/bin:${env.PATH}"
-    }    
+    }
 
     stages {
 
@@ -35,8 +38,16 @@ pipeline {
                 checkout scm
 
                 sh '''
+                    set -e
+
                     echo "AWS Windows Server 2022 AD DS Deployment"
+                    echo "=========================================="
+
+                    # Display the checked-out commit.
                     git log -1 --oneline
+
+                    # Confirm the repository root.
+                    pwd
                 '''
             }
         }
@@ -50,16 +61,25 @@ pipeline {
                 sh '''
                     set -e
 
+                    echo "=========================================="
+                    echo "Pre-deployment validation"
+                    echo "=========================================="
+
                     # Confirm the AWS deployment script exists.
                     test -f startupadds-aws.sh
 
-                    # Check Bash syntax without executing the deployment.
+                    # Validate Bash syntax without running deployment.
                     bash -n startupadds-aws.sh
 
-                    // Confirm required automation and AWS Session Manager tools are installed.
+                    # Confirm the Terraform configuration exists.
+                    test -f aws-ad-lab-terraform/main.tf
+                    test -f aws-ad-lab-terraform/versions.tf
+
+                    # Confirm required automation tools are installed.
                     for cmd in terraform aws ansible-playbook \
-                            ansible ansible-inventory ansible-vault \
-                            ansible-galaxy python3 session-manager-plugin; do
+                               ansible ansible-inventory ansible-vault \
+                               ansible-galaxy python3 session-manager-plugin \
+                               trivy git; do
 
                         command -v "$cmd" >/dev/null 2>&1 || {
                             echo "ERROR: Missing required command: $cmd"
@@ -67,13 +87,15 @@ pipeline {
                         }
                     done
 
-                    # Confirm Trivy is available on the Jenkins agent.
-                    command -v trivy >/dev/null 2>&1 || {
-                        echo "ERROR: Trivy is not installed or not in PATH."
-                        exit 1
-                    }
+                    # Display installed tool versions for traceability.
+                    terraform version
+                    aws --version
+                    ansible --version
+                    trivy version
+                    session-manager-plugin --version
 
-                    echo "AWS deployment prerequisites passed."
+                    echo "All required tools are available."
+                    echo "Pre-deployment validation passed."
                 '''
             }
         }
@@ -87,19 +109,14 @@ pipeline {
                 sh '''
                     set -e
 
-                    # Display the installed Trivy version for build traceability.
-                    trivy version
-
                     echo "=========================================="
                     echo "Trivy filesystem security scan"
                     echo "=========================================="
 
-                    # Scan the repository for:
-                    # - Vulnerable dependencies and packages.
-                    # - Exposed credentials, tokens, and secrets.
+                    # Scan the repository for vulnerable dependencies
+                    # and exposed secrets.
                     #
-                    # Fail the build if HIGH or CRITICAL findings exist.
-                    # Skip generated files and directories.
+                    # Fail the pipeline on HIGH or CRITICAL findings.
                     trivy fs \
                         --scanners vuln,secret \
                         --severity HIGH,CRITICAL \
@@ -109,18 +126,18 @@ pipeline {
                         --skip-dirs .venv \
                         --skip-dirs logs \
                         --skip-dirs .terraform \
+                        --skip-dirs .ansible \
                         .
 
                     echo "=========================================="
                     echo "Trivy Terraform IaC security scan"
                     echo "=========================================="
 
-                    # Scan Terraform configuration only.
-                    # Excluding other misconfiguration scanners prevents
-                    # the additional Terraform Plan Snapshot scan.
+                    # Scan Terraform configuration for infrastructure
+                    # misconfigurations.
                     #
-                    # This checks the Terraform files throughout the
-                    # repository and fails on HIGH or CRITICAL findings.
+                    # Restrict the misconfiguration scanner to Terraform.
+                    # Fail on HIGH or CRITICAL findings.
                     trivy config \
                         --misconfig-scanners terraform \
                         --severity HIGH,CRITICAL \
@@ -130,10 +147,11 @@ pipeline {
                         --skip-dirs .venv \
                         --skip-dirs logs \
                         --skip-dirs .terraform \
+                        --skip-dirs .ansible \
                         .
 
                     echo "=========================================="
-                    echo "Trivy security scans completed successfully."
+                    echo "Trivy security scans passed."
                     echo "=========================================="
                 '''
             }
@@ -147,25 +165,27 @@ pipeline {
             steps {
                 script {
 
-                    // Use the SonarQube Scanner installation configured
-                    // under Manage Jenkins > Tools.
+                    // Use the scanner installation configured in Jenkins.
                     def scannerHome = tool 'SonarScanner'
 
-                    // Use the SonarQube server configured under
-                    // Manage Jenkins > System.
+                    // Connect to the configured SonarQube server.
                     withSonarQubeEnv('SonarQube') {
 
                         sh """
                             set -e
 
-                            # Run SonarQube analysis against the checked-out repository.
+                            echo "Starting SonarQube analysis."
+
+                            # Analyze the checked-out AWS AD Lab repository.
                             "${scannerHome}/bin/sonar-scanner" \
                                 -Dsonar.projectKey=aws-windows-ad-lab \
                                 -Dsonar.projectName="AWS Windows AD Lab" \
                                 -Dsonar.projectVersion=1.0 \
                                 -Dsonar.sources=. \
                                 -Dsonar.sourceEncoding=UTF-8 \
-                                -Dsonar.exclusions="**/.git/**,**/.venv/**,**/.terraform/**,**/logs/**,**/vault.yml"
+                                -Dsonar.exclusions="**/.git/**,**/.venv/**,**/venv/**,**/.terraform/**,**/.ansible/**,**/logs/**,**/vault.yml,**/*.tfstate,**/*.tfstate.backup,**/*.tfplan,**/*.pem,**/*.key"
+
+                            echo "SonarQube analysis submitted."
                         """
                     }
                 }
@@ -180,8 +200,8 @@ pipeline {
             steps {
                 timeout(time: 10, unit: 'MINUTES') {
 
-                    // Stop the pipeline if SonarQube reports a failed
-                    // quality gate.
+                    // Require SonarQube to approve the analysis.
+                    // Stop the pipeline if the Quality Gate fails.
                     waitForQualityGate abortPipeline: true
                 }
             }
@@ -195,10 +215,9 @@ pipeline {
             steps {
                 script {
 
-                    // Require explicit approval before creating
-                    // billable AWS resources.
+                    // Require approval before creating billable AWS resources.
                     input(
-                        message: 'Approve deployment of Windows Server 2022 AD DS infrastructure in AWS? This may create billable resources.',
+                        message: 'Approve deployment of Windows Server 2022 AD DS infrastructure in AWS? This deployment may create billable resources.',
                         ok: 'Approve AWS Deployment'
                     )
                 }
@@ -228,24 +247,46 @@ pipeline {
                         variable: 'AWS_SECRET_ACCESS_KEY'
                     ),
 
-                    // Ansible Vault password stored as a Jenkins Secret file.
+                    // Ansible Vault password file.
                     file(
                         credentialsId: 'ansible-vault-password-file',
                         variable: 'ANSIBLE_VAULT_PASSWORD_FILE'
                     )
                 ]) {
 
+                    // Verify AWS credentials before starting deployment.
+                    sh '''
+                        set +x
+
+                        echo "=========================================="
+                        echo "Validating AWS credentials"
+                        echo "=========================================="
+
+                        # Confirm that the Jenkins AWS credentials work.
+                        aws sts get-caller-identity
+
+                        # Confirm that the Ansible Vault password file exists.
+                        test -r "$ANSIBLE_VAULT_PASSWORD_FILE"
+
+                        echo "AWS authentication and Vault validation passed."
+                    '''
+
                     // The Jenkins approval stage has already been completed.
                     withEnv(['JENKINS_AUTO_APPROVE=true']) {
 
                         sh '''
-                            # Do not print commands that might expose secrets.
+                            # Prevent shell command tracing from exposing secrets.
                             set +x
+                            set -e
 
                             # Restrict access to the deployment script.
                             chmod 700 startupadds-aws.sh
 
-                            # Run the existing AWS deployment automation.
+                            echo "=========================================="
+                            echo "Starting AWS Active Directory deployment"
+                            echo "=========================================="
+
+                            # Run the existing deployment automation.
                             ./startupadds-aws.sh
                         '''
                     }
@@ -259,9 +300,10 @@ pipeline {
 
         stage('Deployment Summary') {
             steps {
-                echo 'AWS Windows Server 2022 AD DS deployment completed.'
-                echo 'Trivy scan and SonarQube quality gate passed.'
-                echo 'Review the deployment log and Terraform outputs.'
+                echo 'AWS Windows Server 2022 AD DS deployment completed successfully.'
+                echo 'Trivy filesystem and Terraform security scans passed.'
+                echo 'SonarQube Quality Gate passed.'
+                echo 'Review deployment logs and Terraform outputs.'
             }
         }
     }
@@ -279,7 +321,7 @@ pipeline {
 
         failure {
             echo 'FAILED: AWS Active Directory deployment encountered an error.'
-            echo 'Review the Jenkins console output and scan results.'
+            echo 'Review the Jenkins console output and identify the failed stage.'
         }
 
         aborted {
