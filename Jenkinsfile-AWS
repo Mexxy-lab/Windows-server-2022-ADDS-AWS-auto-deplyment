@@ -1,4 +1,3 @@
-```groovy
 pipeline {
 
     // Run on the Jenkins agent with Terraform, AWS CLI, Ansible,
@@ -566,4 +565,3 @@ pipeline {
         }
     }
 }
-```
