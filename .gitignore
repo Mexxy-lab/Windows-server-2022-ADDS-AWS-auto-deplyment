@@ -21,4 +21,5 @@ azure-ad-lab-terraform/terraform.tfstate.backup
 ProjectList.md
 gcp-adlab-terraform/
 Pictures/
-./README.md
+# Ansible Vault password
+.vault_pass

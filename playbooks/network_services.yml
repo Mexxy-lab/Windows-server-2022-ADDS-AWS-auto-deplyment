@@ -1,4 +1,3 @@
-
 ---
 - name: Configure DHCP and internal network NAT
   hosts: domain_controller

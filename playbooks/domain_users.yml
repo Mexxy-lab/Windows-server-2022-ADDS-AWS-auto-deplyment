@@ -8,8 +8,17 @@
     - ../group_vars/vault.yml
 
   vars:
-    ansible_user: 'PUMEJLAB\Administrator'
+    # Default domain administrator for the AWS deployment.
+    # Azure overrides this variable through its protected extra-vars file.
+    domain_admin_user: 'PUMEJLAB\Administrator'
+
+    # Use the configured domain administrator account for WinRM.
+    ansible_user: "{{ domain_admin_user }}"
+
+    # Retrieve the domain administrator password from Ansible Vault.
     ansible_password: "{{ domain_admin_password }}"
+
+    # Destination for the CSV file on the domain controller.
     remote_csv_path: 'C:\Temp\ADLab\user_accounts_final.csv'
 
   tasks:
@@ -36,4 +45,4 @@
 
     - name: Display import completion message
       ansible.builtin.debug:
-        msg: "User import task completed. Check C:\\Temp\\ADLab\\ADUserImportLog.txt on the domain controller for the detailed results." 
+        msg: "User import task completed. Check C:\\Temp\\ADLab\\ADUserImportLog.txt on the domain controller for the detailed results."

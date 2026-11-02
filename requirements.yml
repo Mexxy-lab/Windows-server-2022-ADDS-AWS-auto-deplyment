@@ -1,4 +1,8 @@
 ---
 collections:
+  # Version 3.4.0 removed deprecated Ansible text utility imports.
   - name: ansible.windows
+    version: ">=3.4.0,<4.0.0"
+
+  # Active Directory management collection.
   - name: microsoft.ad

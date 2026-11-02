@@ -8,8 +8,13 @@
     - ../group_vars/vault.yml
 
   vars:
-    # Use the domain administrator password supplied by Ansible Vault.
+    # The deployment script supplies the appropriate WinRM password.
+    # Azure uses the local labadmin bootstrap password.
+    # AWS can supply its configured client connection credentials.
     ansible_password: "{{ domain_admin_password }}"
+
+    # AWS default. Azure overrides this with labadmin@pumejlab.com.
+    domain_admin_user: "Administrator@{{ domain_name }}"
 
   tasks:
     # ---------------------------------------------------------
@@ -29,7 +34,7 @@
     - name: Join the Active Directory domain
       microsoft.ad.membership:
         dns_domain_name: "{{ domain_name }}"
-        domain_admin_user: "Administrator@{{ domain_name }}"
+        domain_admin_user: "{{ domain_admin_user }}"
         domain_admin_password: "{{ domain_admin_password }}"
         state: domain
       register: domain_join
@@ -63,4 +68,4 @@
         msg:
           - "Windows client successfully joined {{ domain_name }}."
           - "Domain membership verification completed."
-          - "The deployment script will handle the client reboot through AWS SSM."
+          - "The deployment script will handle the client reboot through AWS SSM/Azure-Winrm."

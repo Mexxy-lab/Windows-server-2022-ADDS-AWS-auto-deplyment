@@ -24,7 +24,7 @@ fi
 LOG_DIR="$PROJECT_DIR/logs"
 mkdir -p "$LOG_DIR"
 chmod 700 "$LOG_DIR"
-LOG_FILE="$LOG_DIR/startupadds-$(date +%Y%m%d-%H%M%S).log"
+LOG_FILE="$LOG_DIR/startupadds-aws-$(date +%Y%m%d-%H%M%S).log"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 # Temporary files and SSM tunnel processes are cleaned up on exit.

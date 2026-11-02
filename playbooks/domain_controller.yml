@@ -9,8 +9,10 @@
     - ../group_vars/vault.yml
 
   vars:
-    # Use the local Administrator account during initial configuration.
-    # The deployment script changes to domain credentials after promotion.
+    # The deployment script supplies the platform-specific WinRM credentials.
+    # AWS can use its local Administrator account.
+    # Azure uses its local labadmin account.
+    # After AD DS promotion, the script switches to domain Administrator.
     ansible_password: "{{ domain_admin_password }}"
 
   tasks:
