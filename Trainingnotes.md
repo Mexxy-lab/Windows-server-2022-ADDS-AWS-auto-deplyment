@@ -371,3 +371,46 @@ jq -r '
   | .[]
 ' trivy-report.json
 ```
+
+🚀 **Portfolio Project: Automated Windows Server 2022 Active Directory Deployment on AWS**
+
+I’m excited to share a hands-on cloud infrastructure and DevOps project I’ve been building: **Windows Server 2022 AD DS Auto Deployment on AWS.**
+
+The goal was to automate the deployment of a Windows Active Directory environment using Infrastructure as Code, configuration management, and CI/CD — while keeping the Windows servers private and minimizing manual administration.
+
+☁️ **Project Architecture & Technologies**
+
+🔹 **AWS** – VPC, public and private subnets, EC2, IAM, Systems Manager, Secrets Manager  
+🔹 **Terraform** – Automated infrastructure provisioning  
+🔹 **Ansible & PowerShell** – Windows configuration, AD DS installation, DNS, OU creation, and domain user automation  
+🔹 **AWS Systems Manager** – Private server management and temporary port forwarding  
+🔹 **WinRM over HTTPS** – Secure Ansible communication with Windows hosts  
+🔹 **Jenkins** – CI/CD pipeline with deployment and destruction workflows  
+🔹 **Trivy** – Infrastructure-as-Code and security scanning  
+🔹 **SonarQube** – Static code analysis and quality gate integration  
+🔹 **GitHub** – Source control and project documentation  
+
+🛡️ **Security-Focused Design**
+
+The Windows instances are deployed in a private subnet without direct public IP exposure. AWS Systems Manager is used for remote management, while a Linux NAT instance provides controlled outbound connectivity.
+
+Sensitive automation data is protected using Ansible Vault and Jenkins credentials.
+
+⚙️ **What I Automated**
+
+✅ Provisioned AWS infrastructure with Terraform  
+✅ Deployed and configured Windows Server 2022  
+✅ Installed and configured Active Directory Domain Services  
+✅ Automated DNS, organizational units, and domain user creation  
+✅ Validated Windows remoting and domain connectivity  
+✅ Built a Jenkins pipeline with Trivy and SonarQube integration  
+✅ Added parameterized `APPLY` and `DESTROY` workflows with approval gates  
+✅ Documented deployment, validation, and troubleshooting procedures  
+
+The AWS deployment has successfully completed its infrastructure and Active Directory validation. I’m currently finalizing the Jenkins execution environment and preparing to extend the project into **Azure**, bringing the automation toward a multi-cloud implementation.
+
+This project has been a great opportunity to strengthen my practical skills in cloud infrastructure, Windows administration, automation, networking, and DevSecOps.
+
+📌 **Next milestone:** Azure AD DS environment deployment with Terraform, Ansible, and Jenkins.
+
+## AWS #DevOps #CloudEngineering #Terraform #Ansible #Jenkins #WindowsServer #ActiveDirectory #DevSecOps #Trivy #SonarQube #InfrastructureAsCode #Automation #CloudSecurity #PortfolioProject
